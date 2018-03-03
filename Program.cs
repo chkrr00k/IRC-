@@ -22,7 +22,7 @@ namespace IRCclient {
             this.sock = new TcpClient(address, port);
             if(this.sock.Connected) {
                 this.isConnected = true;
-            }else {
+            } else {
                 throw new IOException();
             }
             this.strmRd = new StreamReader(this.sock.GetStream());
@@ -32,7 +32,7 @@ namespace IRCclient {
         public string readLine() {
             if(this.isConnected) {
                 return this.strmRd.ReadLine();
-            }else {
+            } else {
                 throw new IOException();
             }
         }
@@ -41,7 +41,7 @@ namespace IRCclient {
             if(this.isConnected) {
                 this.strmWr.WriteLine(input);
                 this.strmWr.Flush();
-            }else {
+            } else {
                 throw new IOException();
             }
         }
@@ -59,19 +59,39 @@ namespace IRCclient {
         public string message { get; set; }
         public string channel { get; set; }
 
+        public static Message parse(string input) {
+            if(ChannelMessage.check(input)) {
+                return ChannelMessage.of(input);
+            }else if(StatusMessage.check(input)) {
+                return StatusMessage.of(input);
+            }else if(PrivateMessage.check(input)) {
+                return PrivateMessage.of(input);
+            }else {
+                return UnknownMessage.of(input);
+            }
+        }
+
     }
 
-    class ChannelMessage : Message {
+    class ChannelMessage: Message {
 
         public static Regex msgRe = new Regex(":(.+)\\!.+ PRIVMSG (\\#[^\\s]+) \\:(.+)", RegexOptions.IgnoreCase);
 
-        public ChannelMessage(string input):base() {
+        public ChannelMessage(string input) : base() {
             MatchCollection mtch = ChannelMessage.msgRe.Matches(input);
             if(mtch.Count > 0 && mtch[0].Groups.Count == 4) {
                 base.sender = mtch[0].Groups[1].Value;
                 base.message = mtch[0].Groups[3].Value;
                 base.channel = mtch[0].Groups[2].Value;
             }
+        }
+
+        internal static bool check(string input) {
+            return ChannelMessage.msgRe.IsMatch(input);
+        }
+
+        internal static Message of(string input) {
+            return new ChannelMessage(input);
         }
 
         public override string ToString() {
@@ -92,8 +112,100 @@ namespace IRCclient {
             }
         }
 
+        internal static bool check(string input) {
+            return PrivateMessage.msgRe.IsMatch(input);
+        }
+
+        internal static Message of(string input) {
+            return new PrivateMessage(input);
+        }
+
         public override string ToString() {
             return "<" + base.sender + "@" + base.channel + "> " + base.message;
+        }
+    }
+
+    class StatusMessage: Message {
+        public static Regex topic = new Regex(@":(.+)\!.+ TOPIC (\#\w+) \:(.+)", RegexOptions.IgnoreCase);
+        public static Regex mode = new Regex(@":(.+)\!.+ MODE (\S+) :?(\+|\-)(\S+)(\s(.+))?", RegexOptions.IgnoreCase);
+        public static Regex nick = new Regex(@":(.+)\!.+ NICK (.+)", RegexOptions.IgnoreCase);
+        public static Regex part = new Regex(@":(.+)\!.+ PART (\#\w+)( \:(.+))?", RegexOptions.IgnoreCase);
+        public static Regex quit = new Regex(@":(.+)\!.+ QUIT( \:(.+))?", RegexOptions.IgnoreCase);
+        public static Regex join = new Regex(@":(.+)\!.+ JOIN \:(\#\w+)", RegexOptions.IgnoreCase);
+        public static Regex kick = new Regex(@":(.+)\!.+ KICK (\#\w+)([^\#]\w+)( \:(.+))?", RegexOptions.IgnoreCase);
+        public static Regex generic = new Regex(@":(\S*)\s(\d*)\s(\w+)\s(.*)", RegexOptions.IgnoreCase);
+        public static Regex notice = new Regex(@":(.+)\!.+ NOTICE ([^\#]\w+) \:(.+)", RegexOptions.IgnoreCase);
+
+        private string status;
+
+        public StatusMessage(string status) {
+            this.status = status;
+        }
+
+        public override string ToString() {
+            return this.status;
+        }
+
+        public static StatusMessage of(string input) {
+            GroupCollection tmp;
+            if(StatusMessage.topic.IsMatch(input)) {
+                tmp = StatusMessage.topic.Matches(input)[0].Groups;
+                return new StatusMessage("" + tmp[1] + " has changed the topic of " + tmp[2] + " to " + tmp[3] + "");
+            } else if(StatusMessage.mode.IsMatch(input)) {
+                tmp = StatusMessage.mode.Matches(input)[0].Groups;
+                return new StatusMessage("" + tmp[1] + " has changed the mode " + tmp[2] + " to " + tmp[3] + "");
+            } else if(StatusMessage.nick.IsMatch(input)) {
+                tmp = StatusMessage.nick.Matches(input)[0].Groups;
+                return new StatusMessage("" + tmp[1] + " has changed the topic of " + tmp[2] + " to " + tmp[3] + "");
+            } else if(StatusMessage.part.IsMatch(input)) {
+                tmp = StatusMessage.part.Matches(input)[0].Groups;
+                return new StatusMessage("" + tmp[1] + " has changed the topic of " + tmp[2] + " to " + tmp[3] + "");
+            } else if(StatusMessage.quit.IsMatch(input)) {
+                tmp = StatusMessage.quit.Matches(input)[0].Groups;
+                return new StatusMessage("" + tmp[1] + " has quitted " + (tmp.Count > 1 ? "  " + tmp[2] + "" : ""));
+            } else if(StatusMessage.join.IsMatch(input)) {
+                tmp = StatusMessage.join.Matches(input)[0].Groups;
+                return new StatusMessage("" + tmp[1] + " has joined " + tmp[2] + "");
+            } else if(StatusMessage.kick.IsMatch(input)) {
+                tmp = StatusMessage.kick.Matches(input)[0].Groups;
+                return new StatusMessage("" + tmp[1] + " was kicked from " + tmp[2] + (tmp.Count > 2 ?"  " + tmp[3] + "" :""));
+            } else if(StatusMessage.generic.IsMatch(input)) {
+                tmp = StatusMessage.generic.Matches(input)[0].Groups;
+                return new StatusMessage("" + tmp[1] + " " + tmp[2] + " " + tmp[3] + " " + tmp[4] + "");
+            } else if(StatusMessage.notice.IsMatch(input)) {
+                tmp = StatusMessage.notice.Matches(input)[0].Groups;
+                return new StatusMessage("[" + tmp[1] + "@" + tmp[2] + "] " + tmp[3] + "");
+            } else {
+                return new StatusMessage(input);
+            }
+        }
+
+        internal static bool check(string input) {
+            return (StatusMessage.topic.IsMatch(input))
+                || (StatusMessage.mode.IsMatch(input))
+                || (StatusMessage.nick.IsMatch(input))
+                || (StatusMessage.part.IsMatch(input))
+                || (StatusMessage.quit.IsMatch(input))
+                || (StatusMessage.join.IsMatch(input))
+                || (StatusMessage.kick.IsMatch(input))
+                || (StatusMessage.generic.IsMatch(input))
+                || (StatusMessage.notice.IsMatch(input));
+        }
+    }
+
+    class UnknownMessage : Message {
+        private new string message;
+
+        public UnknownMessage(string message) {
+            this.message = message;
+        }
+
+        public override string ToString() {
+            return this.message;
+        }
+
+        public static Message of(string input) {
+            return new UnknownMessage(input);
         }
     }
 
@@ -127,7 +239,7 @@ namespace IRCclient {
         private Thread tr;
 
 
-        public IRC(string host, short port, string nick="CID", string realname="realname", string hostn="host", string ident="ident") {
+        public IRC(string host, short port, string nick = "CID", string realname = "realname", string hostn = "host", string ident = "ident") {
             this.channels = new Dictionary<string, Channel>();
             this.conn = new Connection(host, port);
             this.number = 0;
@@ -141,7 +253,7 @@ namespace IRCclient {
         public void addChannel(string chanName) {
             if(this.number < 6) {
                 this.chanToJoin.Add(chanName);
-            }else {
+            } else {
                 this.joinChannel(chanName);
             }
         }
@@ -150,7 +262,7 @@ namespace IRCclient {
             if(chanName.StartsWith("#")) {
                 conn.writeLine("JOIN " + chanName + "\r\n");
                 this.channels.Add(chanName, new Channel(chanName));
-            }else {
+            } else {
                 throw new InvalidDataException();
             }
         }
@@ -172,12 +284,12 @@ namespace IRCclient {
                 }
                 if(tmp.StartsWith("PING ")) {
                     conn.writeLine("PONG " + tmp.Split()[1] + "\r\n");
-                } else if(ChannelMessage.msgRe.IsMatch(tmp)) {
-                    msg = new ChannelMessage(tmp);
-                    this.channels[msg.channel].addMessage(msg);
+                }else {
+                    msg = Message.parse(tmp);
+                    if(msg is ChannelMessage) {
+                        this.channels[msg.channel].addMessage(msg);
+                    }
                     Console.WriteLine(msg);
-                } else {
-                    Console.WriteLine("UNK" + tmp);
                 }
             }
         }
@@ -200,7 +312,7 @@ namespace IRCclient {
             while((tmp = Console.ReadLine()) != null && !tmp.Equals("start")) {
                 if(tmp.StartsWith("#") && !tmp.Contains(" ")) {
                     chans.Add(tmp.Trim());
-                }else {
+                } else {
                     Console.WriteLine("Channels starts with \"#\"!");
                 }
             }
@@ -210,11 +322,32 @@ namespace IRCclient {
             Console.CancelKeyPress += delegate {
                 irc.disconnect();
             };
-
             while((tmp = Console.ReadLine()) != null) {
-                irc.sendMessage(tmp.Split(' ')[0], string.Join(" ", tmp.Split(' ').Skip(1)));
+                if(tmp.StartsWith("/")) {
+                    tmp = tmp.Substring(1);
+                    Console.WriteLine(tmp);
+                    switch(tmp.Split(' ')[0]) {
+                        case "nick":
+                            break;
+                        case "join":
+                            if(tmp.Length > 5 && !tmp.Substring(5).Contains(' ') && tmp.Split(' ').Length == 2) {
+                                irc.addChannel(tmp.Split(' ')[1]);
+                            }else {
+                                Console.WriteLine("Wrong syntax");
+                            }
+                            break;
+                        case "part":
+                            break;
+                        default:
+                            break;
+
+                    }
+                    
+                } else {
+                    irc.sendMessage(tmp.Split(' ')[0], string.Join(" ", tmp.Split(' ').Skip(1)));
+                }
             }
-           
+
         }
     }
 }
